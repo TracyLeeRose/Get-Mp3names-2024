@@ -2,15 +2,15 @@
 #include <fstream>
 #include <string>
 #include <vector>
-#include <algorithm> // for std::sort
-#include <filesystem> // Include this header for filesystem operations
-#include <windows.h>  // For Beep function and system calls
-#include <shellapi.h> // For ShellExecute function
+#include <algorithm>
+#include <filesystem>
+#include <windows.h>
+#include <shellapi.h>
 
-namespace fs = std::filesystem; // Use an alias to make it easier to refer to filesystem functions
+namespace fs = std::filesystem;
 
-// Function to list all MP3 files from a directory and write their information to a text file
-// By Tracy Rose
+// by Tracy Rose
+// Function to list all MP3 files and write their information to a text file
 
 void listMP3Files(const std::string& path) {
     std::ofstream outFile("Music-list.txt");
@@ -19,19 +19,29 @@ void listMP3Files(const std::string& path) {
         return;
     }
 
-    int totalMP3Files = 0; // Variable to count MP3 files
+    std::vector<std::string> allFiles;         // Tracks all MP3 files
+    std::vector<std::string> noDelimiterFiles; // Tracks MP3 files with no delimiter
 
     try {
-        for (const auto& entry : fs::directory_iterator(path)) {
-            if (fs::is_regular_file(entry) && entry.path().extension() == ".mp3") {
-                totalMP3Files++; // Increment the count each time an MP3 file is found
-                std::string filename = entry.path().filename().string();
-                size_t dashPos1 = filename.find(" - "); // Find the first occurrence of " - "
-                if (dashPos1 != std::string::npos) {
-                    std::string songTitle = filename.substr(0, dashPos1); // Extract the artist and title part before the delimiter
-                    std::string restOfFilename = filename.substr(dashPos1 + 3); // Extract the file extension after the delimiter
-                    outFile << songTitle << " - " << restOfFilename << "\n"; // Write complete information to file
+        for (const auto& entry : fs::recursive_directory_iterator(path, fs::directory_options::skip_permission_denied)) {
+            try {
+                if (fs::is_regular_file(entry)) {
+                    std::string extension = entry.path().extension().string();
+                    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower); // Convert to lowercase
+
+                    if (extension == ".mp3") {
+                        std::string filename = entry.path().filename().string();
+                        allFiles.push_back(filename);
+
+                        // Check for delimiter " - "
+                        if (filename.find(" - ") == std::string::npos) {
+                            noDelimiterFiles.push_back(filename);
+                        }
+                    }
                 }
+            }
+            catch (const fs::filesystem_error& e) {
+                std::cerr << "Error accessing file: " << e.what() << '\n';
             }
         }
     }
@@ -39,40 +49,65 @@ void listMP3Files(const std::string& path) {
         std::cerr << "Filesystem error: " << e.what() << '\n';
     }
 
-    // Output the total count of MP3 files after scanning the directory
-    if (!outFile.is_open()) {
-        std::cerr << "Cannot write to Music-list.txt\n";
-        return;
+    // Write all MP3 files to the output file
+    for (const auto& file : allFiles) {
+        outFile << file << "\n";
     }
-    else {
-        outFile << "\nTOTAL = " << totalMP3Files << "\n"; // Append total count to the file
-        std::cout << "TOTAL = " << totalMP3Files << std::endl; // Also print it to console for user feedback
+
+    // Append the total count of MP3 files
+    outFile << "\nTOTAL = " << allFiles.size() << "\n";
+
+    // Add a section for files with no delimiter
+    if (!noDelimiterFiles.empty()) {
+        outFile << "\n\nFILES WITH NO DELIMITER:\n";
+        for (const auto& file : noDelimiterFiles) {
+            outFile << file << "\n";
+        }
+    }
+
+    std::cout << "Processed " << allFiles.size() << " MP3 files.\n";
+    if (!noDelimiterFiles.empty()) {
+        std::cout << noDelimiterFiles.size() << " files did not contain the delimiter \" - \".\n";
+        std::cout << "Check the 'FILES WITH NO DELIMITER' section in Music-list.txt.\n";
     }
 }
 
-// Function to sort the cleaned list alphabetically
+// Function to sort the file content alphabetically, excluding status lines
 void sortFileContent(const std::string& input, const std::string& output) {
     std::ifstream inFile(input);
     if (!inFile) {
-        std::cerr << "Cannot open Music-list.txt for reading.\n";
+        std::cerr << "Cannot open " << input << " for reading.\n";
         return;
     }
 
     std::vector<std::string> lines;
     std::string line;
+
+    // Read all lines except for the "TOTAL" and "FILES WITH NO DELIMITER" sections
+    bool isDelimiterSection = false;
     while (std::getline(inFile, line)) {
-        if (!line.empty()) { // Ensure non-empty lines are added to the vector
+        if (line.empty()) continue;
+
+        if (line.find("TOTAL =") == 0) {
+            continue; // Skip the TOTAL line
+        }
+
+        if (line.find("FILES WITH NO DELIMITER:") == 0) {
+            isDelimiterSection = true; // Begin ignoring lines in this section
+            continue;
+        }
+
+        if (!isDelimiterSection) {
             lines.push_back(line);
         }
     }
-
-    inFile.close(); // Close the input file after reading
+    inFile.close();
 
     std::sort(lines.begin(), lines.end());
 
     std::ofstream outFile(output);
     if (!outFile) {
-        std::cerr << "Cannot open Alphabetized-Music.txt for writing.\n";
+        std::cerr << "Cannot open " << output << " for writing.\n";
         return;
     }
 
@@ -80,23 +115,17 @@ void sortFileContent(const std::string& input, const std::string& output) {
         outFile << l << "\n";
     }
 
-    // Output the total count to the sorted file
-    if (!outFile.is_open()) {
-        std::cerr << "Cannot write to Alphabetized-Music.txt\n";
-        return;
-    }
-    else {
-        outFile << "\nTOTAL = " << lines.size() - 1 << "\n"; // Append total count to the sorted file
-    }
+    outFile << "\nTOTAL = " << lines.size() << "\n"; // Correct total count
+    std::cout << "Sorted " << lines.size() << " entries.\n";
 }
 
 // Function to open a file with Notepad
 void openNotepad(const std::string& filePath) {
     size_t len = filePath.length();
     wchar_t* wFilePath = new wchar_t[len + 1];
-    mbstowcs_s(&len, wFilePath, len + 1, filePath.c_str(), _TRUNCATE); // Safely convert to wide character string
+    mbstowcs_s(&len, wFilePath, len + 1, filePath.c_str(), _TRUNCATE);
     ShellExecuteW(NULL, L"open", L"notepad.exe", wFilePath, NULL, SW_SHOWNORMAL);
-    delete[] wFilePath; // Don't forget to free the allocated memory
+    delete[] wFilePath;
 }
 
 int main() {
@@ -107,10 +136,7 @@ int main() {
     listMP3Files(path);
     sortFileContent("Music-list.txt", "Alphabetized-Music.txt");
 
-    // Play a beep sound to alert completion
-    Beep(1000, 500); // Frequency: 1000 Hz, Duration: 500 ms
-
-    // Open the sorted file in Notepad
+    Beep(1000, 500);
     openNotepad("Alphabetized-Music.txt");
 
     return 0;
