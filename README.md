@@ -21,3 +21,9 @@ Where users can get help with your project:  Email me at aquiline.photos@gmail.c
 It may take a while for a reply. Be patient.
 
 Who maintains and contributes to the project:  No one it's just an experiment now done
+
+NOTE: Once you have extracted this into a folder for use, scan it for safety as always 
+but be sure to tell your virus checker it's a safe file for future scans. My virus
+checker hates floating EXE files in the system.
+
+
